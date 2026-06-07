@@ -109,6 +109,7 @@ export const api = {
     },
   },
   market: {
+    prices: () => request('/market/prices'),
     products: (params?: { category?: string; status?: string; keyword?: string }) => {
       const query = new URLSearchParams(params as Record<string, string>);
       return request(`/market/products?${query.toString()}`);

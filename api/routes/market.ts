@@ -18,6 +18,33 @@ const MARKET_PRICE_DATA: Record<string, { basePrice: number; trend: number; vola
   '土豆': { basePrice: 1.8, trend: 0.01, volatility: 0.12 },
 };
 
+router.get('/prices', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const vegPrices = Object.entries(MARKET_PRICE_DATA)
+      .filter(([name]) => ['番茄', '黄瓜', '白菜'].some(v => name.includes(v)))
+      .map(([_, d]) => d.basePrice);
+    const fruitPrices = Object.entries(MARKET_PRICE_DATA)
+      .filter(([name]) => ['苹果', '柑橘'].some(v => name.includes(v)))
+      .map(([_, d]) => d.basePrice);
+    const grainPrices = Object.entries(MARKET_PRICE_DATA)
+      .filter(([name]) => ['小麦', '水稻', '玉米', '大豆'].some(v => name.includes(v)))
+      .map(([_, d]) => d.basePrice);
+    
+    const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+    
+    res.json({
+      vegetableAvg: Math.round(avg(vegPrices) * 100) / 100,
+      fruitAvg: Math.round(avg(fruitPrices) * 100) / 100,
+      grainAvg: Math.round(avg(grainPrices) * 100) / 100,
+      trend: 'up',
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Get market prices error:', error);
+    res.status(500).json({ error: '获取市场行情失败' });
+  }
+});
+
 router.get('/products', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { category, status, keyword } = req.query;

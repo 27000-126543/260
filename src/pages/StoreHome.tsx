@@ -39,7 +39,7 @@ export default function StoreHome() {
     api.store
       .products({
         category: activeCategory || undefined,
-        search: searchQuery || undefined,
+        keyword: searchQuery || undefined,
       })
       .then((data) => setProducts(data as Product[]))
       .catch(() => {});

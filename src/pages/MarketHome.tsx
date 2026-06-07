@@ -17,16 +17,29 @@ import { Button } from '@/components/ui/Button';
 import { api } from '@/utils/api';
 import type { MarketProduct } from '../../shared/types';
 
+interface MarketPrices {
+  vegetableAvg: number;
+  fruitAvg: number;
+  grainAvg: number;
+  trend: string;
+}
+
 export default function MarketHome() {
   const [products, setProducts] = useState<MarketProduct[]>([]);
+  const [marketPrices, setMarketPrices] = useState<MarketPrices | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.market
-      .products()
-      .then((data) => setProducts(data as MarketProduct[]))
+    Promise.all([
+      api.market.products(),
+      api.market.prices()
+    ])
+      .then(([productsData, pricesData]) => {
+        setProducts(productsData as MarketProduct[]);
+        setMarketPrices(pricesData as MarketPrices);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -78,20 +91,24 @@ export default function MarketHome() {
                 <TrendingUp className="w-5 h-5" />
                 <span className="font-medium">今日行情</span>
               </div>
-              <h3 className="text-xl font-bold">市场均价稳中有升</h3>
-              <p className="text-white/80 mt-1">建议把握时机适时出货</p>
+              <h3 className="text-xl font-bold">
+                {marketPrices?.trend === 'up' ? '市场均价稳中有升' : marketPrices?.trend === 'down' ? '市场均价有所回落' : '市场价格保持稳定'}
+              </h3>
+              <p className="text-white/80 mt-1">
+                {marketPrices?.trend === 'up' ? '建议把握时机适时出货' : marketPrices?.trend === 'down' ? '建议错峰上市减少损失' : '建议维持正常销售节奏'}
+              </p>
             </div>
             <div className="flex gap-4">
               <div className="text-center">
-                <div className="text-2xl font-bold">¥3.2</div>
+                <div className="text-2xl font-bold">¥{marketPrices?.vegetableAvg?.toFixed(1) || '--'}</div>
                 <div className="text-sm text-white/70">蔬菜均价/斤</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">¥2.8</div>
+                <div className="text-2xl font-bold">¥{marketPrices?.fruitAvg?.toFixed(1) || '--'}</div>
                 <div className="text-sm text-white/70">水果均价/斤</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">¥1.6</div>
+                <div className="text-2xl font-bold">¥{marketPrices?.grainAvg?.toFixed(1) || '--'}</div>
                 <div className="text-sm text-white/70">粮食均价/斤</div>
               </div>
             </div>
