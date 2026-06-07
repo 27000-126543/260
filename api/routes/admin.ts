@@ -201,7 +201,7 @@ router.get('/dashboard', async (req: AuthRequest, res: Response): Promise<void> 
     const totalSales = db.prepare('SELECT SUM(total_amount) as total FROM orders WHERE status != "pending"').get() as { total: number };
     const completedOrders = db.prepare('SELECT COUNT(*) as count FROM orders WHERE status = "completed"').get() as { count: number };
     const pestDetections = db.prepare('SELECT COUNT(*) as count FROM pest_detections WHERE created_at >= datetime("now", "-30 days")').get() as { count: number };
-    const weatherAlerts = db.prepare('SELECT COUNT(*) as count FROM weather_data WHERE created_at >= datetime("now", "-30 days")').get() as { count: number };
+    const weatherAlerts = db.prepare('SELECT COUNT(*) as count FROM weather_data WHERE warnings IS NOT NULL AND warnings != \'\' AND created_at >= datetime("now", "-30 days")').get() as { count: number };
     
     const regionStats = calculateRegionStats();
     const categorySales = calculateCategorySales();
@@ -419,7 +419,7 @@ function calculateRegionStats() {
       orderCount,
       orderCompletionRate,
       pestRate,
-      weatherAlerts: weatherCount.count || Math.floor(r.provinces.length * 1.5)
+      weatherAlerts: weatherCount.count || 0
     };
   });
 }
