@@ -8,6 +8,7 @@ import StoreHome from '@/pages/StoreHome';
 import ProductDetail from '@/pages/ProductDetail';
 import ShoppingCart from '@/pages/ShoppingCart';
 import OrderList from '@/pages/OrderList';
+import LogisticsDetail from '@/pages/LogisticsDetail';
 import FieldManagement from '@/pages/FieldManagement';
 import WeatherAlert from '@/pages/WeatherAlert';
 import MarketHome from '@/pages/MarketHome';
@@ -99,6 +100,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <AppLayout>
               <OrderList />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/store/orders/:orderId/logistics"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <LogisticsDetail />
             </AppLayout>
           </ProtectedRoute>
         }
