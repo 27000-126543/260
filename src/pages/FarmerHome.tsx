@@ -42,9 +42,13 @@ export default function FarmerHome() {
 
   useEffect(() => {
     api.weather.current().then(setWeather).catch(() => {});
-    api.weather.warnings().then(setWarnings).catch(() => {});
+    api.weather.alerts().then(setWarnings).catch(() => {});
     api.lands.list().then(setLands).catch(() => {});
-    api.admin.news().then(setNews).catch(() => {});
+    setNews([
+      { id: '1', title: '全国春播粮食进度超八成', date: '2026-06-05', source: '农业农村部' },
+      { id: '2', title: '今年小麦最低收购价每斤提高1分', date: '2026-06-03', source: '国家发改委' },
+      { id: '3', title: '农技推广：夏季蔬菜田间管理要点', date: '2026-06-01', source: '农技推广中心' },
+    ]);
   }, []);
 
   const totalArea = lands.reduce((sum, land) => sum + land.area, 0);

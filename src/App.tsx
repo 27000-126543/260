@@ -1,5 +1,6 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppLayout } from '@/components/Layout/AppLayout';
+import { Login } from '@/pages/Login';
 import FarmerHome from '@/pages/FarmerHome';
 import LandManagement from '@/pages/LandManagement';
 import Recommendation from '@/pages/Recommendation';
@@ -14,125 +15,173 @@ import Traceability from '@/pages/Traceability';
 import AgricultureFinance from '@/pages/AgricultureFinance';
 import MemberCenter from '@/pages/MemberCenter';
 import AdminDashboard from '@/pages/AdminDashboard';
+import { useAppStore } from '@/stores/useAppStore';
+
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { isLoggedIn } = useAppStore();
+  const location = useLocation();
+
+  if (!isLoggedIn) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function AppRoutes() {
+  return (
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <FarmerHome />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/lands"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <LandManagement />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/recommendations"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <Recommendation />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/store"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <StoreHome />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/store/product/:id"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <ProductDetail />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/store/cart"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <ShoppingCart />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/store/orders"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <OrderList />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/field"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <FieldManagement />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/weather"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <WeatherAlert />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/market"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <MarketHome />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/traceability"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <Traceability />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/finance"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <AgricultureFinance />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/member"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <MemberCenter />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AppLayout>
+              <AdminDashboard />
+            </AppLayout>
+          </ProtectedRoute>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
 
 export default function App() {
   return (
     <Router>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <AppLayout>
-              <FarmerHome />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/lands"
-          element={
-            <AppLayout>
-              <LandManagement />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/recommendations"
-          element={
-            <AppLayout>
-              <Recommendation />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/store"
-          element={
-            <AppLayout>
-              <StoreHome />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/store/product/:id"
-          element={
-            <AppLayout>
-              <ProductDetail />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/store/cart"
-          element={
-            <AppLayout>
-              <ShoppingCart />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/store/orders"
-          element={
-            <AppLayout>
-              <OrderList />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/field"
-          element={
-            <AppLayout>
-              <FieldManagement />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/weather"
-          element={
-            <AppLayout>
-              <WeatherAlert />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/market"
-          element={
-            <AppLayout>
-              <MarketHome />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/traceability"
-          element={
-            <AppLayout>
-              <Traceability />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/finance"
-          element={
-            <AppLayout>
-              <AgricultureFinance />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/member"
-          element={
-            <AppLayout>
-              <MemberCenter />
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <AppLayout>
-              <AdminDashboard />
-            </AppLayout>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <AppRoutes />
     </Router>
   );
 }

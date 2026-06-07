@@ -1,11 +1,17 @@
 import { create } from 'zustand';
 import type { User, CartItem, Land, Product } from '../../shared/types';
+import { api } from '../utils/api';
 
 interface AppState {
   user: User | null;
   isLoggedIn: boolean;
+  loading: boolean;
   cart: CartItem[];
   selectedLand: Land | null;
+  login: (phone: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  register: (phone: string, name: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  logout: () => void;
+  fetchProfile: () => Promise<void>;
   setUser: (user: User | null) => void;
   setLoggedIn: (value: boolean) => void;
   addToCart: (product: Product, specIndex: number, quantity: number) => void;
@@ -16,21 +22,57 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: {
-    id: 'user001',
-    phone: '13800138000',
-    name: '张农夫',
-    role: 'farmer',
-    idCardVerified: true,
-    memberLevel: 'gold',
-    creditScore: 780,
-    createdAt: '2024-01-15T00:00:00Z',
-  },
-  isLoggedIn: true,
+  user: null,
+  isLoggedIn: !!localStorage.getItem('auth_token'),
+  loading: false,
   cart: [],
   selectedLand: null,
+
+  login: async (phone: string, password: string) => {
+    try {
+      set({ loading: true });
+      const result: any = await api.auth.login({ phone, password });
+      localStorage.setItem('auth_token', result.token);
+      const userData = result.user as User;
+      set({ user: userData, isLoggedIn: true, loading: false });
+      return { success: true };
+    } catch (error: any) {
+      set({ loading: false });
+      return { success: false, error: error.message };
+    }
+  },
+
+  register: async (phone: string, name: string, password: string) => {
+    try {
+      set({ loading: true });
+      const result: any = await api.auth.register({ phone, name, password });
+      localStorage.setItem('auth_token', result.token);
+      const userData = result.user as User;
+      set({ user: userData, isLoggedIn: true, loading: false });
+      return { success: true };
+    } catch (error: any) {
+      set({ loading: false });
+      return { success: false, error: error.message };
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem('auth_token');
+    set({ user: null, isLoggedIn: false, cart: [] });
+  },
+
+  fetchProfile: async () => {
+    try {
+      const profile: any = await api.auth.getProfile();
+      set({ user: profile });
+    } catch (error) {
+      console.error('Fetch profile failed:', error);
+    }
+  },
+
   setUser: (user) => set({ user }),
   setLoggedIn: (value) => set({ isLoggedIn: value }),
+
   addToCart: (product, specIndex, quantity) => {
     const existing = get().cart.find(
       (item) => item.productId === product.id && item.specIndex === specIndex
