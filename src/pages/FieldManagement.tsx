@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Camera,
   Upload,
@@ -10,89 +10,102 @@ import {
   User,
   FileText,
   Plus,
+  X
 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { api } from '@/utils/api';
 import type { PestDetectionResult } from '../../shared/types';
 
-const mockHistory: Array<{
-  id: string;
-  image: string;
-  disease: string;
-  severity: string;
-  date: string;
-  status: 'completed' | 'expert' | 'pending';
-}> = [
-  {
-    id: '1',
-    image: 'https://images.unsplash.com/photo-1574943320219-553eb213f72d?w=400',
-    disease: '稻瘟病',
-    severity: '中度',
-    date: '2024-03-10',
-    status: 'completed',
-  },
-  {
-    id: '2',
-    image: 'https://images.unsplash.com/photo-1592419044706-39796d40f98c?w=400',
-    disease: '小麦锈病',
-    severity: '轻度',
-    date: '2024-03-08',
-    status: 'completed',
-  },
-  {
-    id: '3',
-    image: 'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=400',
-    disease: '疑似病虫害',
-    severity: '待专家确诊',
-    date: '2024-03-12',
-    status: 'expert',
-  },
-];
-
 export default function FieldManagement() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
-  const [result, setResult] = useState<PestDetectionResult | null>(null);
+  const [result, setResult] = useState<any>(null);
+  const [history, setHistory] = useState<any[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  const loadHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      const data = await api.field.detections() as any[];
+      setHistory(data);
+    } catch (err: any) {
+      console.error('加载检测历史失败:', err);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      setSelectedImage(file);
+      setResult(null);
+      setError(null);
       const reader = new FileReader();
       reader.onload = (event) => {
-        setSelectedImage(event.target?.result as string);
-        simulateDetection();
+        setSelectedImagePreview(event.target?.result as string);
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const simulateDetection = () => {
-    setDetecting(true);
-    setResult(null);
-    setTimeout(() => {
+  const handleDetection = async () => {
+    if (!selectedImage) return;
+
+    try {
+      setDetecting(true);
+      setError(null);
+      
+      const formData = new FormData();
+      formData.append('image', selectedImage);
+      
+      const data = await api.field.detectPest(formData);
+      setResult(data);
+      loadHistory();
+    } catch (err: any) {
+      console.error('病虫害识别失败:', err);
+      setError(err.message || '识别失败，请重试');
+    } finally {
       setDetecting(false);
-      setResult({
-        diseaseName: '稻瘟病',
-        confidence: 0.92,
-        severity: 'moderate',
-        description: '稻瘟病是由稻瘟病菌引起的水稻重要病害，可造成水稻减产10-30%。',
-        symptoms: ['叶片出现褐色梭形病斑', '病斑中央灰白色，边缘褐色', '潮湿时病斑背面产生灰色霉层'],
-        suggestions: [
-          '及时摘除病叶，减少菌源',
-          '使用三环唑或稻瘟灵喷雾防治',
-          '合理施肥，避免偏施氮肥',
-          '保持田间通风透光',
-        ],
-        expertAvailable: true,
-      });
-    }, 2000);
+    }
+  };
+
+  const handleApplyExpert = async () => {
+    if (!result) return;
+    try {
+      await api.field.applyExpert(result.id);
+      alert('已提交专家诊断申请');
+      loadHistory();
+    } catch (err: any) {
+      console.error('申请专家诊断失败:', err);
+      alert('申请失败: ' + err.message);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedImage(null);
+    setSelectedImagePreview(null);
+    setResult(null);
+    setError(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const getSeverityStyle = (severity: string) => {
     switch (severity) {
       case 'mild':
       case '轻度':
+      case 'healthy':
         return 'text-yellow-600 bg-yellow-100';
       case 'moderate':
       case '中度':
@@ -107,14 +120,11 @@ export default function FieldManagement() {
 
   const getSeverityText = (severity: string) => {
     switch (severity) {
-      case 'mild':
-        return '轻度';
-      case 'moderate':
-        return '中度';
-      case 'severe':
-        return '重度';
-      default:
-        return severity;
+      case 'mild': return '轻度';
+      case 'moderate': return '中度';
+      case 'severe': return '重度';
+      case 'healthy': return '健康';
+      default: return severity;
     }
   };
 
@@ -138,6 +148,7 @@ export default function FieldManagement() {
               <div className="flex flex-col sm:flex-row gap-3 justify-center">
                 <label>
                   <input
+                    ref={fileInputRef}
                     type="file"
                     accept="image/*"
                     className="hidden"
@@ -165,24 +176,39 @@ export default function FieldManagement() {
             </div>
           ) : (
             <div className="max-w-2xl mx-auto">
-              <div className="aspect-video rounded-xl overflow-hidden bg-gray-100 mb-4">
-                <img src={selectedImage} alt="上传的图片" className="w-full h-full object-cover" />
-              </div>
-              <div className="flex gap-3 justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedImage(null);
-                    setResult(null);
-                  }}
+              <div className="aspect-video rounded-xl overflow-hidden bg-gray-100 mb-4 relative">
+                <img src={selectedImagePreview || ''} alt="上传的图片" className="w-full h-full object-cover" />
+                <button
+                  onClick={clearSelection}
+                  className="absolute top-2 right-2 p-1 bg-white rounded-full shadow hover:bg-gray-100"
                 >
-                  重新上传
-                </Button>
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
               </div>
+              {!result && !detecting && (
+                <div className="flex gap-3 justify-center">
+                  <Button onClick={handleDetection}>
+                    <Bug className="w-5 h-5 mr-2" />
+                    开始识别
+                  </Button>
+                  <Button variant="outline" onClick={clearSelection}>
+                    重新上传
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {/* Error */}
+      {error && (
+        <Card className="border-l-4 border-l-red-500 bg-red-50">
+          <CardContent className="p-4">
+            <p className="text-red-700">{error}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Detection Result */}
       {detecting && (
@@ -202,7 +228,11 @@ export default function FieldManagement() {
               <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-3 mb-2">
-                    <Bug className="w-6 h-6 text-orange-500" />
+                    {result.severity === 'healthy' ? (
+                      <Leaf className="w-6 h-6 text-green-500" />
+                    ) : (
+                      <Bug className="w-6 h-6 text-orange-500" />
+                    )}
                     <h3 className="text-xl font-bold text-gray-900">{result.diseaseName}</h3>
                     <Badge className={getSeverityStyle(result.severity)}>
                       {getSeverityText(result.severity)}
@@ -214,8 +244,8 @@ export default function FieldManagement() {
                     识别置信度：{(result.confidence * 100).toFixed(1)}%
                   </div>
                 </div>
-                {result.expertAvailable && (
-                  <Button variant="outline">
+                {result.needsExpert && (
+                  <Button variant="outline" onClick={handleApplyExpert}>
                     <User className="w-4 h-4 mr-2" />
                     申请专家诊断
                   </Button>
@@ -225,54 +255,64 @@ export default function FieldManagement() {
           </Card>
 
           {/* Symptoms */}
-          <Card>
-            <CardHeader>
-              <h3 className="text-lg font-semibold text-gray-900">主要症状</h3>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {result.symptoms.map((symptom, i) => (
-                  <li key={i} className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                    <span className="text-gray-700">{symptom}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          {result.symptoms && result.symptoms.length > 0 && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold text-gray-900">主要症状</h3>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-2">
+                  {result.symptoms.map((symptom: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3">
+                      <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-gray-700">{symptom}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Suggestions */}
-          <Card>
-            <CardHeader>
-              <h3 className="text-lg font-semibold text-gray-900">防治建议</h3>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-3">
-                {result.suggestions.map((suggestion, i) => (
-                  <li key={i} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
-                    <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center flex-shrink-0 text-sm font-medium">
-                      {i + 1}
-                    </div>
-                    <span className="text-gray-700">{suggestion}</span>
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+          {result.suggestions && result.suggestions.length > 0 && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold text-gray-900">防治建议</h3>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {result.suggestions.map((suggestion: string, i: number) => (
+                    <li key={i} className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+                      <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center flex-shrink-0 text-sm font-medium">
+                        {i + 1}
+                      </div>
+                      <span className="text-gray-700">{suggestion}</span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
-          {/* Generate Report */}
-          <Card>
-            <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <h4 className="font-medium text-gray-900">生成诊断报告</h4>
-                <p className="text-sm text-gray-500">包含详细分析和防治方案，可下载分享</p>
-              </div>
-              <Button>
-                <FileText className="w-5 h-5 mr-2" />
-                生成报告
-              </Button>
-            </CardContent>
-          </Card>
+          {/* Treatment */}
+          {result.treatment && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-lg font-semibold text-gray-900">推荐用药</h3>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3">
+                  {result.treatment.pesticides?.map((p: any, i: number) => (
+                    <li key={i} className="p-3 bg-blue-50 rounded-lg">
+                      <p className="font-medium text-blue-900">{p.name}</p>
+                      <p className="text-sm text-blue-700">用量：{p.dosage}</p>
+                      <p className="text-sm text-blue-600">频次：{p.frequency}</p>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
@@ -280,60 +320,74 @@ export default function FieldManagement() {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">最近诊断记录</h3>
-          <Button variant="outline" size="sm">
-            查看全部
+          <Button variant="outline" size="sm" onClick={loadHistory}>
+            刷新
           </Button>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {mockHistory.map((record) => (
-              <div
-                key={record.id}
-                className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer"
-              >
-                <img
-                  src={record.image}
-                  alt=""
-                  className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-medium text-gray-900">{record.disease}</h4>
-                    <Badge className={getSeverityStyle(record.severity)}>
-                      {record.severity}
-                    </Badge>
-                  </div>
-                  <div className="flex items-center gap-3 text-sm text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Clock className="w-4 h-4" />
-                      {record.date}
-                    </span>
-                    {record.status === 'expert' && (
-                      <Badge variant="info" className="flex items-center gap-1">
-                        <User className="w-3 h-3" />
-                        专家诊断中
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <Badge
-                  variant={
-                    record.status === 'completed'
-                      ? 'success'
-                      : record.status === 'expert'
-                      ? 'info'
-                      : 'warning'
-                  }
+          {loadingHistory ? (
+            <div className="py-8 text-center text-gray-500">加载中...</div>
+          ) : history.length === 0 ? (
+            <div className="py-8 text-center text-gray-500">
+              <Leaf className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+              <p>暂无诊断记录</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {history.map((record) => (
+                <div
+                  key={record.id}
+                  className="flex items-center gap-4 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
                 >
-                  {record.status === 'completed'
-                    ? '已完成'
-                    : record.status === 'expert'
-                    ? '专家诊断'
-                    : '处理中'}
-                </Badge>
-              </div>
-            ))}
-          </div>
+                  <img
+                    src={record.image_url?.startsWith('http') ? record.image_url : `http://localhost:3001${record.image_url}`}
+                    alt=""
+                    className="w-16 h-16 rounded-lg object-cover flex-shrink-0 bg-gray-200"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="%23ccc"><rect width="64" height="64" fill="%23eee"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%23999">图片</text></svg>';
+                    }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-gray-900 truncate">{record.disease_name}</h4>
+                      <Badge className={getSeverityStyle(record.severity)}>
+                        {getSeverityText(record.severity)}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        {new Date(record.created_at).toLocaleDateString('zh-CN')}
+                      </span>
+                      {record.status === 'expert_completed' && (
+                        <Badge variant="info" className="flex items-center gap-1">
+                          <User className="w-3 h-3" />
+                          专家已诊断
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <Badge
+                    variant={
+                      record.status === 'completed' || record.status === 'expert_completed'
+                        ? 'success'
+                        : record.status === 'expert_pending'
+                        ? 'info'
+                        : 'warning'
+                    }
+                  >
+                    {record.status === 'completed'
+                      ? '已完成'
+                      : record.status === 'expert_completed'
+                      ? '专家诊断'
+                      : record.status === 'expert_pending'
+                      ? '专家诊断中'
+                      : '处理中'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

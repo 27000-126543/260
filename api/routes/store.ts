@@ -1,9 +1,53 @@
-import { Router, type Response } from 'express'
+import { Router, type Response, type Request } from 'express'
 import { v4 as uuidv4 } from 'uuid';
 import db from '../db/database.js';
 import { type AuthRequest, authMiddleware } from '../middleware/auth.js';
 
 const router = Router()
+
+interface SSEClient {
+  id: string;
+  orderId: string;
+  res: Response;
+}
+
+const sseClients = new Map<string, SSEClient[]>();
+
+function addSSEClient(orderId: string, client: SSEClient) {
+  if (!sseClients.has(orderId)) {
+    sseClients.set(orderId, []);
+  }
+  sseClients.get(orderId)!.push(client);
+  console.log(`[STORE] SSE客户端连接: 订单 ${orderId}, 当前连接数: ${sseClients.get(orderId)!.length}`);
+}
+
+function removeSSEClient(orderId: string, clientId: string) {
+  const clients = sseClients.get(orderId);
+  if (clients) {
+    const filtered = clients.filter(c => c.id !== clientId);
+    if (filtered.length === 0) {
+      sseClients.delete(orderId);
+    } else {
+      sseClients.set(orderId, filtered);
+    }
+    console.log(`[STORE] SSE客户端断开: 订单 ${orderId}, 剩余连接数: ${filtered.length}`);
+  }
+}
+
+function broadcastToSSEClients(orderId: string, data: any) {
+  const clients = sseClients.get(orderId);
+  if (!clients) return;
+  
+  console.log(`[STORE] 向 ${clients.length} 个客户端推送物流更新: 订单 ${orderId}, 状态: ${data.status}`);
+  
+  clients.forEach(client => {
+    try {
+      client.res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch (err) {
+      console.error(`[STORE] SSE推送失败: 订单 ${orderId}`, err);
+    }
+  });
+}
 
 interface Warehouse {
   id: string;
@@ -64,8 +108,8 @@ router.get('/products', async (req: AuthRequest, res: Response): Promise<void> =
     }
     
     res.json(products);
-  } catch (error) {
-    console.error('Get products error:', error);
+  } catch (error: any) {
+    console.error('[STORE] 获取商品列表失败:', error.message);
     res.status(500).json({ error: '获取商品列表失败' });
   }
 })
@@ -87,11 +131,57 @@ router.get('/products/:id', async (req: AuthRequest, res: Response): Promise<voi
     `).all(req.params.id);
     
     res.json({ ...product, inventory });
-  } catch (error) {
-    console.error('Get product detail error:', error);
+  } catch (error: any) {
+    console.error('[STORE] 获取商品详情失败:', error.message);
     res.status(500).json({ error: '获取商品详情失败' });
   }
 })
+
+router.get('/logistics/stream/:orderId', async (req: Request, res: Response): Promise<void> => {
+  const orderId = req.params.orderId;
+  const clientId = uuidv4();
+  
+  const token = req.query.token as string;
+  let userId: string | null = null;
+  
+  if (token) {
+    try {
+      const { verify } = await import('jsonwebtoken');
+      const decoded = verify(token, process.env.JWT_SECRET || 'your_jwt_secret') as any;
+      userId = decoded.id;
+    } catch (e) {
+      res.status(401).json({ error: '未授权访问' });
+      return;
+    }
+  } else {
+    res.status(401).json({ error: '未授权访问' });
+    return;
+  }
+  
+  const order = db.prepare('SELECT * FROM orders WHERE id = ? AND user_id = ?').get(orderId, userId);
+  if (!order) {
+    res.status(404).json({ error: '订单不存在' });
+    return;
+  }
+  
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  
+  res.flushHeaders();
+  
+  addSSEClient(orderId, { id: clientId, orderId, res });
+  
+  const existingTracks = db.prepare('SELECT * FROM logistics_tracks WHERE order_id = ? ORDER BY created_at ASC').all(orderId);
+  if (existingTracks.length > 0) {
+    res.write(`data: ${JSON.stringify({ type: 'init', tracks: existingTracks })}\n\n`);
+  }
+  
+  req.on('close', () => {
+    removeSSEClient(orderId, clientId);
+  });
+});
 
 router.get('/orders', authMiddleware, async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -116,8 +206,8 @@ router.get('/orders', authMiddleware, async (req: AuthRequest, res: Response): P
     }));
     
     res.json(ordersWithItems);
-  } catch (error) {
-    console.error('Get orders error:', error);
+  } catch (error: any) {
+    console.error('[STORE] 获取订单列表失败:', error.message);
     res.status(500).json({ error: '获取订单列表失败' });
   }
 })
@@ -183,9 +273,7 @@ router.post('/orders', authMiddleware, async (req: AuthRequest, res: Response): 
       nearestWarehouse.id
     );
     
-    setTimeout(() => {
-      processOrderShipment(orderId, nearestWarehouse);
-    }, 5000);
+    await processOrderShipment(orderId, nearestWarehouse);
     
     const user = db.prepare('SELECT total_trade_amount FROM users WHERE id = ?').get(req.user!.id) as any;
     const newTotal = (user?.total_trade_amount || 0) + totalAmount;
@@ -194,9 +282,10 @@ router.post('/orders', authMiddleware, async (req: AuthRequest, res: Response): 
     const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
     const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
     
+    console.log(`[STORE] 订单创建成功: ${orderNo}, 金额: ¥${totalAmount.toFixed(2)}`);
     res.json({ ...(order as object), items: orderItems });
-  } catch (error) {
-    console.error('Create order error:', error);
+  } catch (error: any) {
+    console.error('[STORE] 创建订单失败:', error.message);
     res.status(500).json({ error: '创建订单失败' });
   }
 })
@@ -215,8 +304,8 @@ router.get('/orders/:id', authMiddleware, async (req: AuthRequest, res: Response
     const warehouse = order.warehouse_id ? db.prepare('SELECT * FROM warehouses WHERE id = ?').get(order.warehouse_id) : null;
     
     res.json({ ...order, items, tracks, warehouse });
-  } catch (error) {
-    console.error('Get order detail error:', error);
+  } catch (error: any) {
+    console.error('[STORE] 获取订单详情失败:', error.message);
     res.status(500).json({ error: '获取订单详情失败' });
   }
 })
@@ -248,7 +337,42 @@ function findNearestWarehouse(province: string, city: string, items: any[]): War
   return scoredWarehouses[0].warehouse;
 }
 
-function processOrderShipment(orderId: string, warehouse: Warehouse) {
+const LOGISTICS_STAGES = [
+  {
+    status: 'warehouse',
+    location: '{warehouse}',
+    description: '货物已从仓库发出，正在分拣打包',
+    delay: 2000,
+    tempRange: [14, 18],
+    humidityRange: [60, 70]
+  },
+  {
+    status: 'transit',
+    location: '运输途中',
+    description: '货物正在冷链运输中，全程温控',
+    delay: 8000,
+    tempRange: [8, 15],
+    humidityRange: [65, 75]
+  },
+  {
+    status: 'delivering',
+    location: '配送站',
+    description: '货物已到达目的地城市，正在安排配送',
+    delay: 8000,
+    tempRange: [6, 12],
+    humidityRange: [70, 80]
+  },
+  {
+    status: 'delivered',
+    location: '已签收',
+    description: '货物已成功签收，感谢您的购买',
+    delay: 12000,
+    tempRange: [null, null],
+    humidityRange: [null, null]
+  }
+];
+
+async function processOrderShipment(orderId: string, warehouse: Warehouse) {
   const trackingNo = 'SF' + Date.now().toString();
   
   db.prepare(`
@@ -261,51 +385,53 @@ function processOrderShipment(orderId: string, warehouse: Warehouse) {
   `).run(trackingNo, orderId);
   
   const insertTrack = db.prepare(`
-    INSERT INTO logistics_tracks (id, order_id, status, location, description, temperature, humidity)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO logistics_tracks (id, order_id, status, location, description, temperature, humidity, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
   `);
   
-  insertTrack.run(
-    uuidv4(), orderId, 'warehouse',
-    `${warehouse.province}${warehouse.city}`,
-    `货物已从${warehouse.name}发出，正在分拣中`,
-    15, 65
-  );
-  
-  setTimeout(() => {
-    insertTrack.run(
-      uuidv4(), orderId, 'transit',
-      '运输途中',
-      '货物正在运往目的地，冷链车辆运输中',
-      12, 70
-    );
-  }, 30000);
-  
-  setTimeout(() => {
-    insertTrack.run(
-      uuidv4(), orderId, 'delivering',
-      '配送站',
-      '货物已到达目的地城市，正在安排配送',
-      10, 75
-    );
-  }, 60000);
-  
-  setTimeout(() => {
-    db.prepare(`
-      UPDATE orders SET 
-        status = 'completed',
-        delivered_at = datetime('now'),
-        completed_at = datetime('now')
-      WHERE id = ?
-    `).run(orderId);
+  for (let i = 0; i < LOGISTICS_STAGES.length; i++) {
+    const stage = LOGISTICS_STAGES[i];
     
-    insertTrack.run(
-      uuidv4(), orderId, 'delivered',
-      '已签收',
-      '货物已成功签收，感谢您的购买',
-      null, null
-    );
-  }, 120000);
+    await new Promise(resolve => setTimeout(resolve, stage.delay));
+    
+    const temp = stage.tempRange[0] !== null 
+      ? Math.round(stage.tempRange[0] + Math.random() * (stage.tempRange[1] - stage.tempRange[0]))
+      : null;
+    
+    const humidity = stage.humidityRange[0] !== null
+      ? Math.round(stage.humidityRange[0] + Math.random() * (stage.humidityRange[1] - stage.humidityRange[0]))
+      : null;
+    
+    const location = stage.location.replace('{warehouse}', `${warehouse.province}${warehouse.city}`);
+    
+    const trackId = uuidv4();
+    insertTrack.run(trackId, orderId, stage.status, location, stage.description, temp, humidity);
+    
+    if (stage.status === 'delivered') {
+      db.prepare(`
+        UPDATE orders SET 
+          status = 'completed',
+          delivered_at = datetime('now'),
+          completed_at = datetime('now')
+        WHERE id = ?
+      `).run(orderId);
+    }
+    
+    const trackData = {
+      id: trackId,
+      orderId,
+      status: stage.status,
+      location,
+      description: stage.description,
+      temperature: temp,
+      humidity,
+      createdAt: new Date().toISOString()
+    };
+    
+    broadcastToSSEClients(orderId, { type: 'update', track: trackData });
+    
+    console.log(`[STORE] 物流更新: 订单 ${orderId}, 状态: ${stage.status}, 温度: ${temp}°C, 湿度: ${humidity}%`);
+  }
 }
 
 export default router

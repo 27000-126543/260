@@ -69,6 +69,12 @@ export const api = {
     order: (id: string) => request(`/store/orders/${id}`),
     createOrder: (data: unknown) =>
       request('/store/orders', { method: 'POST', body: JSON.stringify(data) }),
+    streamLogistics: (orderId: string) => {
+      const token = localStorage.getItem('auth_token');
+      return new EventSource(`${API_BASE}/store/logistics/stream/${orderId}?token=${encodeURIComponent(token || '')}`, {
+        withCredentials: false,
+      });
+    },
   },
   field: {
     detectPest: (formData: FormData) =>
